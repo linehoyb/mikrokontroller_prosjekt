@@ -10,20 +10,21 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
+#include "pinDefines.h"
+#define DEBOUNCE_TIME  1000                            /* microseconds */
+
 
 
 
 void Buzzer()
 {
 		/* Oppgave 1 */
-	DDRB = (1<<DDB1);	// PB1 or OC1A output pin
-	TCCR1A = (1<<COM1A0);	// Toggle OC1A on compare match
-	TCCR1B = (1<<CS12)|(1<<CS10)|(1<<WGM12);	// 1024x prescaler and CTC mode with OCR1A top (mode 4)
-	/*
-	(16000000/1024)*(500/1000)= 7813
-	*/
-	OCR1A =	13;	// Top value to give 500ms period
+	DDRB = (1<<DDB2);	// PB2 or OC1B output pin
+	TCCR0A = (1<<COM0A0)|(1<<WGM01);	// Toggle OC1B on compare match and CTC mode  with OCR1A top (mode 4)
+	TCCR0B = (1<<CS02)|(1<<CS00);	// 1024x prescaler	
+	OCR1B =	13;	// Top value to give 1200hz freq
 }
+
 
 void Stop()
 {
@@ -32,28 +33,44 @@ void Stop()
 	{
 		Buzzer();
 		_delay_ms(1000);
-		DDRB = (0<<DDB1);
+		DDRB = (0<<DDB2);
 		_delay_ms(500);
 	}	
 }
 
+uint8_t debounce(void) {
+	if (bit_is_clear(BUTTON_PIN, BUTTON)) {      /* button is pressed now */
+		_delay_us(DEBOUNCE_TIME);
+		if (bit_is_clear(BUTTON_PIN, BUTTON)) {            /* still pressed */
+			return (1);
+		}
+	}
+	return 0;
+}
 
 void button_interupt()
 {
-	  PORTD |= (1 << PD2);  /* initialize pullup resistor on our input pin */
-	  DDRB = 0xff;                           /* set up all LEDs for output */
+	// -------- Inits --------- //
+	uint8_t buttonWasPressed=0;                                 /* state */
+	BUTTON_PORT |= (1 << BUTTON);     /* enable the pullup on the button */
+	LED_DDR = (1 << LED0);                      /* set up LED for output */
 
-	  // ------ Event loop ------ //
-	  while (1) {
-		  if (bit_is_clear(PIND, PD2)) {            /* look for button press */
-			  /* equivalent to if ((PIND & (1 << PD2)) == 0 ){ */
-				  PORTB = 0b00111100;                                   /* pressed */
-			  }
-			  else {                                              /* not pressed */
-				  PORTB = 0b11000011;
-			  }
-		 }                                                  /* End event loop */	 	
-}
+	// ------ Event loop ------ //
+	while (1) {
+		if (debounce()) {                        /* debounced button press */
+			if (buttonWasPressed == 0) {     /* but wasn't last time through */
+				LED_PORT ^= (1 << LED0);                        /* do whatever */
+				buttonWasPressed = 1;                      /* update the state */
+			}
+		}
+		else {                                /* button is not pressed now */
+			buttonWasPressed = 0;                        /* update the state */
+		}
+
+		}                                                  /* End event loop */
+		return 0;                            /* This line is never reached */
+}                                                 /* End event loop */	 	
+
 
 
 
