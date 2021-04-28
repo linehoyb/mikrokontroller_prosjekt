@@ -78,6 +78,7 @@ void buzzer_init (void)
 }
 
 void button_init(void){
+	PORTB |= (1<<PORTB3) | (1<<PORTB4); // Internal pull-up for buttons
 	PCMSK0 |= (1<<PCINT4); // PB4 set as input for interrupt
 	PCICR |= (1<<PCIE0);  // PCI0 vector,  interrupt 0 enabled 
 	EICRA |= (1<<ISC01); //falling edge INT0 generates an interrupt request
@@ -246,9 +247,9 @@ int main(void)
 	timer_init();
 	buzzer_init();
 	LCD_init();
-	buzzer_init();
+	button_init();
 	
-	PORTB |= (1<<PAUSE_PIN) | (1<<START_PIN); // Internal pull-up for buttons
+	
 	DDRD |= 0xFF; // LDC and LED outputs
 	DDRB |= (1<<DDB0); // green LED output
 	
@@ -258,7 +259,7 @@ int main(void)
 	{
 		while (timer_running == 0 && start_pressed == 0)
 		{
-			cli();
+			cli(); // Disable interrupts
 			volatile uint16_t pot_value = read_ADC(POT_PIN);
 			seconds = ADC_to_seconds(pot_value);
 			printString("Set time at: ");
@@ -274,9 +275,6 @@ int main(void)
 				sei();	// enable interrupts, also starts the countdown
 			}
 		}
-		
-		printString("TIMER RUNNING!");
-		_delay_ms(1000);
 		
 // 		volatile uint16_t thermistor_value = read_ADC(THERM_PIN);
 // 		float temperature = ADC_to_celcius(thermistor_value);
@@ -310,9 +308,10 @@ ISR (TIMER1_COMPA_vect) // action to be done every 1 sec
 
 ISR (PCINT0_vect)
 {
+	printString("PAUSE!");
 	R_Y_LED_PORT |= (1<<YELLOW_LED);
 	G_LED_PORT &= ~(1<<GREEN_LED);
-	while(get_button_status(PAUSE_PIN) == 0) // wait for btn push again
+	while(get_button_status(START_PIN) == 0) // wait for start button to be pressed
 	G_LED_PORT |= (1<<GREEN_LED);
 	R_Y_LED_PORT &= ~(1<<YELLOW_LED);
 }
