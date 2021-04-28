@@ -1,8 +1,6 @@
 /*
  * prosjektfil_mikro.c
- *
- * Created: 21.04.2021 11:38:20
- * Author : lineh
+ * This program sets a timer up to 3 minutes, and counts down. 
  */ 
 
 #ifndef F_CPU
@@ -17,16 +15,17 @@
 #define POT_PIN 0x01 // Pot.meter connected to AREF, GND and A1
 
 #define START_PIN PB3 // Start button PB3
-#define PAUSE_PIN PB4 // Pause button PB4
+#define PAUSE_PIN PB4 // Pause button PB4, interrupt: PCINT4
 #define START_PORT PORTB
 #define PAUSE_PORT PORTB
 
-#define RED_LED 0x02 // Red led on PD2
-#define YELLOW_LED 0x03 // Yellow led on PD3
-#define GREEN_LED 0x00 // Green led on PB0
+#define RED_LED PD2 // Red led on PD2
+#define YELLOW_LED PD3 // Yellow led on PD3
+#define GREEN_LED PB0 // Green led on PB0
+#define R_Y_LED_PORT PORTD
+#define G_LED_PORT PORTB
 
 #define LCD_Port PORTD			//Define LCD Port
-#define LCD_DPin  DDRD			//Define 4-Bit Pins (PD4-PD7 at PORT D)
 #define RSPIN PD0			//RS Pin
 #define ENPIN PD1 			//E Pin
 
@@ -41,7 +40,10 @@
 // -------- Inits --------- //
 #define DEBOUNCE_TIME  1000                            /* microseconds */
 uint8_t time_test = 180;			// Test-variable to see if timer working
-uint8_t buttonWasPressed=0;                                 /* state */
+uint8_t buttonWasPressed = 0;                                 /* state */
+uint8_t timer_running = 0;
+uint8_t start_pressed = 0;
+uint8_t seconds = 0;
 int runtime;			 //Timer for LCD
 
 void ADC_init(void)
@@ -65,19 +67,38 @@ void timer_init(void)
 	TCCR1B |= (1 << WGM12);	// Mode 4, CTC on OCR1A
 	TIMSK1 |= (1 << OCIE1A); 	//Set interrupt on compare match
 	TCCR1B |= (1 << CS12) | (1 << CS10); // set prescaler to 1024 and start the timer
-	
-	sei(); // enable interrupts
 }
 
-void init_buzzer (void)
+void buzzer_init (void)
 {
 	DDRB = (1<<DDB2);	// PB2 or OC1B output pin
-	TCCR0A = (1<<COM0A0)|(1<<WGM01);	// Toggle OC1B on compare match and CTC mode  with OCR1A top (mode 4)
+	TCCR0A = (1<<COM0A0)|(1<<WGM01);	// Toggle OC1B on compare match and CTC mode with OCR1A top (mode 4)
 	TCCR0B = (1<<CS02)|(1<<CS00);	// 1024x prescaler
 	OCR1B =	13;	// Top value to give 1200hz freq
 }
 
-void LCD_Init (void)
+void button_init(void){
+	PCMSK0 |= (1<<PCINT4); // PB4 set as input for interrupt
+	PCICR |= (1<<PCIE0);  // PCI0 vector,  interrupt 0 enabled 
+	EICRA |= (1<<ISC01); //falling edge INT0 generates an interrupt request
+}
+
+void LCD_Action( unsigned char cmnd )
+{
+	LCD_Port = (LCD_Port & 0x0F) | (cmnd & 0xF0);
+	LCD_Port &= ~ (1<<RSPIN);
+	LCD_Port |= (1<<ENPIN);
+	_delay_us(1);
+	LCD_Port &= ~ (1<<ENPIN);
+	_delay_us(200);
+	LCD_Port = (LCD_Port & 0x0F) | (cmnd << 4);
+	LCD_Port |= (1<<ENPIN);
+	_delay_us(1);
+	LCD_Port &= ~ (1<<ENPIN);
+	_delay_ms(2);
+}
+
+void LCD_init (void)
 {
 	_delay_ms(15);		//Wait before LCD activation
 	LCD_Action(0x02);	//4-Bit Control
@@ -88,11 +109,45 @@ void LCD_Init (void)
 	_delay_ms(2);
 }
 
+void LCD_Clear()
+{
+	LCD_Action (0x01);		//Clear LCD
+	_delay_ms(2);			//Wait to clean LCD
+	LCD_Action (0x80);		//Move to Position Line 1, Position 1
+}
+
+void LCD_Print (char *str)
+{
+	int i;
+	for(i=0; str[i]!=0; i++)
+	{
+		LCD_Port = (LCD_Port & 0x0F) | (str[i] & 0xF0);
+		LCD_Port |= (1<<RSPIN);
+		LCD_Port|= (1<<ENPIN);
+		_delay_us(1);
+		LCD_Port &= ~ (1<<ENPIN);
+		_delay_us(200);
+		LCD_Port = (LCD_Port & 0x0F) | (str[i] << 4);
+		LCD_Port |= (1<<ENPIN);
+		_delay_us(1);
+		LCD_Port &= ~ (1<<ENPIN);
+		_delay_ms(2);
+	}
+}
+
+void LCD_Printpos (char row, char pos, char *str) //Write on a specific location
+{
+	if (row == 0 && pos<16)
+	LCD_Action((pos & 0x0F)|0x80);
+	else if (row == 1 && pos<16)
+	LCD_Action((pos & 0x0F)|0xC0);
+	LCD_Print(str);
+}
+
 void transmitByte(uint8_t data)
 {
-	/* Wait for empty transmit buffer */
-	loop_until_bit_is_set(UCSR0A, UDRE0);
-	UDR0 = data;                                            /* send data */
+	loop_until_bit_is_set(UCSR0A, UDRE0);  //Wait for empty transmit buffer 
+	UDR0 = data; // Send data
 }
 
 void printString(const char myString[]) 
@@ -123,14 +178,15 @@ void print_value(uint16_t number)
 	transmitByte('0' + ((number/ 10) % 10)); // Tens
 	transmitByte('0' + (number % 10)); // Ones
 	printString("\r");
-	_delay_ms(50);
+	_delay_ms(10);
 }
 
-float ADC_to_seconds(uint16_t adc_number)
+uint8_t ADC_to_seconds(uint16_t adc_number)
 {
 	/*Returns the timer value in seconds*/
 	const float MAX_SECONDS = 180;
-	return ((float)adc_number/1023)*MAX_SECONDS;
+	float decimal_result = ((float)adc_number/1023)*MAX_SECONDS;
+	return (uint8_t)decimal_result;
 }
 
 float ADC_to_celcius(uint16_t adc_number)
@@ -163,115 +219,100 @@ uint8_t debounce(uint8_t button_pin) {
 	if (bit_is_clear(PINB, button_pin)) {      /* button is pressed now */
 		_delay_us(DEBOUNCE_TIME);
 		if (bit_is_clear(PINB, button_pin)) {            /* still pressed */
-			return (1);
+			return 1;
 		}
 	}
 	return 0;
 }
 
-void button_interupt()
+uint8_t get_button_status(uint8_t button)
 {
-	if (debounce(START_PORT)) {                        /* debounced button press */
+	if (debounce(button)) {                        /* debounced button press */
 		if (buttonWasPressed == 0) {     /* but wasn't last time through */
-				PINB |= (1 << PINB0);                        /* do whatever */
-				buttonWasPressed = 1;                      /* update the state */
+			buttonWasPressed = 1;                      /* update the state */
+			return 1;
 		}
 	}
 	else {                                /* button is not pressed now */
 		buttonWasPressed = 0;                        /* update the state */
+		return 0;
 	}
-
-}                                                  /* End event loop */
-
-void LCD_Action( unsigned char cmnd )
-{
-	LCD_Port = (LCD_Port & 0x0F) | (cmnd & 0xF0);
-	LCD_Port &= ~ (1<<RSPIN);
-	LCD_Port |= (1<<ENPIN);
-	_delay_us(1);
-	LCD_Port &= ~ (1<<ENPIN);
-	_delay_us(200);
-	LCD_Port = (LCD_Port & 0x0F) | (cmnd << 4);
-	LCD_Port |= (1<<ENPIN);
-	_delay_us(1);
-	LCD_Port &= ~ (1<<ENPIN);
-	_delay_ms(2);
-}
-
-void LCD_Clear()
-{
-	LCD_Action (0x01);		//Clear LCD
-	_delay_ms(2);			//Wait to clean LCD
-	LCD_Action (0x80);		//Move to Position Line 1, Position 1
-}
-
-void LCD_Print (char *str)
-{
-	int i;
-	for(i=0; str[i]!=0; i++)
-	{
-		LCD_Port = (LCD_Port & 0x0F) | (str[i] & 0xF0);
-		LCD_Port |= (1<<RSPIN);
-		LCD_Port|= (1<<ENPIN);
-		_delay_us(1);
-		LCD_Port &= ~ (1<<ENPIN);
-		_delay_us(200);
-		LCD_Port = (LCD_Port & 0x0F) | (str[i] << 4);
-		LCD_Port |= (1<<ENPIN);
-		_delay_us(1);
-		LCD_Port &= ~ (1<<ENPIN);
-		_delay_ms(2);
-	}
-}
-
-
-void LCD_Printpos (char row, char pos, char *str) //Write on a specific location
-{
-	if (row == 0 && pos<16)
-	LCD_Action((pos & 0x0F)|0x80);
-	else if (row == 1 && pos<16)
-	LCD_Action((pos & 0x0F)|0xC0);
-	LCD_Print(str);
-}
+}  
 
 int main(void)
 {	
 	ADC_init();
 	USART_init();
 	timer_init();
+	buzzer_init();
+	LCD_init();
+	buzzer_init();
 	
-	PORTB |= (1<<PAUSE_PORT) | (1<<START_PORT); // Internal pull-up for buttons
+	PORTB |= (1<<PAUSE_PIN) | (1<<START_PIN); // Internal pull-up for buttons
 	DDRD |= 0xFF; // LDC and LED outputs
-	DDRB |= (1<<DDB0); // green LED
+	DDRB |= (1<<DDB0); // green LED output
 	
-	PORTD |= (1<<PORTD2) | (1<<PORTD3);
-	PORTB |= (1<<PORTB0);
+	R_Y_LED_PORT |= (1<<RED_LED); // Turn on red LED
 	
 	while (1)
 	{
-		volatile uint16_t thermistor_value = read_ADC(THERM_PIN);
-		float temperature = ADC_to_celcius(thermistor_value);
-		printString("Temperature: ");
-		print_value(temperature);
+		while (timer_running == 0 && start_pressed == 0)
+		{
+			cli();
+			volatile uint16_t pot_value = read_ADC(POT_PIN);
+			seconds = ADC_to_seconds(pot_value);
+			printString("Set time at: ");
+			print_value(seconds);
+			
+			start_pressed = get_button_status(START_PIN);
+			
+			if (start_pressed)
+			{
+				timer_running = 1;
+				G_LED_PORT |= (1<<GREEN_LED); // turn on green LED
+				R_Y_LED_PORT &= ~(1<<RED_LED); // turn off red LED
+				sei();	// enable interrupts, also starts the countdown
+			}
+		}
 		
-		volatile uint16_t pot_value = read_ADC(POT_PIN);
-		float seconds = ADC_to_seconds(pot_value);
-		printString("Set time at: ");
-		print_value(seconds);
-		
-		printString("------\r");
+		printString("TIMER RUNNING!");
 		_delay_ms(1000);
 		
-		button_interupt();
+// 		volatile uint16_t thermistor_value = read_ADC(THERM_PIN);
+// 		float temperature = ADC_to_celcius(thermistor_value);
+// 		printString("Temperature: ");
+// 		print_value(temperature);
+// 		printString("------\r");
+// 		_delay_ms(1000);
+		
 	}
-	//	return 0;
+	return 0;
 }
 
 ISR (TIMER1_COMPA_vect) // action to be done every 1 sec
 {
-	if (time_test == 0) time_test = 180; // resets timer (just for testing)
-	else time_test--; // Subtracts 1 from the timer value
+	 seconds--; // Subtracts 1 from the timer value
+	if (seconds == 0) 
+	{
+		printString("All done!");
+		G_LED_PORT &= ~(1<<GREEN_LED); // turn off green LED
+		R_Y_LED_PORT |= (1<<RED_LED); // turn on red LED
+		timer_running = 0;
+		start_pressed = 0;
+	}
+	else
+	{
+		printString("Time left: ");
+		print_value(seconds);
+	}
 	
-	printString("Time left: ");
-	print_value(time_test);
+}
+
+ISR (PCINT0_vect)
+{
+	R_Y_LED_PORT |= (1<<YELLOW_LED);
+	G_LED_PORT &= ~(1<<GREEN_LED);
+	while(get_button_status(PAUSE_PIN) == 0) // wait for btn push again
+	G_LED_PORT |= (1<<GREEN_LED);
+	R_Y_LED_PORT &= ~(1<<YELLOW_LED);
 }
