@@ -11,8 +11,8 @@
 #define BAUD_PRESCALE (((F_CPU / (USART_BAUDRATE * 16UL))) - 1) // UBRR value
 
 // -------- Pin defines --------- //
-#define THERM_PIN A0 // Thermistor connected to AREF, GND and A0
-#define POT_PIN A1 // Pot.meter connected to AREF, GND and A1
+#define THERM_PIN 0x00 // Thermistor connected to AREF, GND and A0
+#define POT_PIN 0x01 // Pot.meter connected to AREF, GND and A1
 
 #define START_PIN PB3 // Start button PB3
 #define PAUSE_PIN PB4 // Pause button PB4, interrupt: PCINT4
@@ -38,11 +38,12 @@
 #include <math.h>
 
 // -------- Inits --------- //
-#define DEBOUNCE_TIME  1000 // microseconds
-uint8_t buttonWasPressed = 0; // Holding button state
-uint8_t timer_running = 0; // State holding if the timer is running
-uint8_t start_pressed = 0; // State holding if the startbutton has been pressed
-uint8_t seconds = 0; //The set time from the potensiometer
+#define DEBOUNCE_TIME  1000                            /* microseconds */
+uint8_t time_test = 180;			// Test-variable to see if timer working
+uint8_t buttonWasPressed = 0;                                 /* state */
+uint8_t timer_running = 0;
+uint8_t start_pressed = 0;
+uint8_t seconds = 0;
 int runtime;			 //Timer for LCD
 
 void ADC_init(void)
@@ -275,12 +276,12 @@ int main(void)
 			}
 		}
 		
-		volatile uint16_t thermistor_value = read_ADC(THERM_PIN);
-		float temperature = ADC_to_celcius(thermistor_value);
-		printString("Temperature: ");
-		print_value(temperature);
-		printString("------\r");
-		_delay_ms(1000);
+// 		volatile uint16_t thermistor_value = read_ADC(THERM_PIN);
+// 		float temperature = ADC_to_celcius(thermistor_value);
+// 		printString("Temperature: ");
+// 		print_value(temperature);
+// 		printString("------\r");
+// 		_delay_ms(1000);
 		
 	}
 	return 0;
@@ -308,9 +309,9 @@ ISR (TIMER1_COMPA_vect) // action to be done every 1 sec
 ISR (PCINT0_vect)
 {
 	printString("PAUSE!");
-	G_LED_PORT &= ~(1<<GREEN_LED);
 	R_Y_LED_PORT |= (1<<YELLOW_LED);
+	G_LED_PORT &= ~(1<<GREEN_LED);
 	while(get_button_status(START_PIN) == 0) // wait for start button to be pressed
-	R_Y_LED_PORT &= ~(1<<YELLOW_LED);
 	G_LED_PORT |= (1<<GREEN_LED);
+	R_Y_LED_PORT &= ~(1<<YELLOW_LED);
 }
