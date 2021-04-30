@@ -16,7 +16,7 @@ More information at www.aeq-web.com
 #define POT_PIN 0x01 // Pot.meter connected to AREF, GND and A1
 
 #define BUZZER_PIN PB2 // Buzzer PB2
-#define START_PIN PB3 // Start button PB3
+#define START_PIN PB2 // Start button PB3
 #define PAUSE_PIN PB4 // Pause button PB4, interrupt: PCINT4
 #define START_PORT PORTB
 #define PAUSE_PORT PORTB
@@ -73,7 +73,7 @@ void timer_init(void)
 
 
 void button_init(void){
-	PORTB |= (1<<PORTB3) | (1<<PORTB4); // Internal pull-up for buttons
+	PORTB |= (1<<PORTB2) | (1<<PORTB4); // Internal pull-up for buttons
 	PCMSK0 |= (1<<PCINT4); // PB4 set as input for interrupt
 	PCICR |= (1<<PCIE0);  // PCI0 vector,  interrupt 0 enabled
 	EICRA |= (1<<ISC01); //falling edge INT0 generates an interrupt request
@@ -152,21 +152,6 @@ uint16_t read_ADC(uint8_t ADCchannel)
 	return ADC;
 }
 // 
-// void print_value(uint16_t number)
-// {
-// 	/*
-// 	* Prints 3-digit numbers to the terminal
-// 	* Because the terminal is interpeting these values as an ASCI code we add '0', or 48, plus a digit
-// 	*/
-// 	uint8_t hundreds = (number/ 100) % 10;
-// 	uint8_t tens = (number/ 10) % 10;
-// 	uint8_t ones = number % 10;
-// 	
-// 	if(hundreds > 0) transmitByte('0' + hundreds);
-// 	if(hundreds > 0 || tens > 0) transmitByte('0' + tens);
-// 	transmitByte('0' + ones); // Ones
-// 	printString("\r");
-// 	_delay_ms(10);
 // }
 // 
 
@@ -178,30 +163,30 @@ uint8_t ADC_to_seconds(uint16_t adc_number)
 	return (uint8_t)decimal_result;
 }
 
-// 
-// uint8_t get_button_status(uint8_t button)
-// {
-// 	if (debounce(button)) {                        /* debounced button press */
-// 		if (buttonWasPressed == 0) {     /* but wasn't last time through */
-// 			buttonWasPressed = 1;                      /* update the state */
-// 			return 1;
-// 		}
-// 	}
-// 	else {                                /* button is not pressed now */
-// 		buttonWasPressed = 0;                        /* update the state */
-// 		return 0;
-// 	}
-// }
-// 
-// uint8_t debounce(uint8_t button_pin) {
-// 	if (bit_is_clear(PINB, button_pin)) {      /* button is pressed now */
-// 		_delay_us(DEBOUNCE_TIME);
-// 		if (bit_is_clear(PINB, button_pin)) {            /* still pressed */
-// 			return 1;
-// 		}
-// 	}
-// 	return 0;
-// }
+uint8_t debounce(uint8_t button_pin) {
+	if (bit_is_clear(PINB, button_pin)) {      /* button is pressed now */
+		_delay_us(DEBOUNCE_TIME);
+		if (bit_is_clear(PINB, button_pin)) {            /* still pressed */
+			return 1;
+		}
+	}
+	return 0;
+}
+uint8_t get_button_status(uint8_t button)
+{
+	if (debounce(button)) {                        /* debounced button press */
+		if (buttonWasPressed == 0) {     /* but wasn't last time through */
+			buttonWasPressed = 1;                      /* update the state */
+			return 1;
+		}
+	}
+	else {                                /* button is not pressed now */
+		buttonWasPressed = 0;                        /* update the state */
+		return 0;
+	}
+}
+
+
 
 
 void yellow_LED_on(){
@@ -231,7 +216,7 @@ int main()
 	button_init();
 	LCD_Init(); //Activate LCD
 	
-	LCD_Print("Arduino works");	//Begin writing at Line 1, Position 1
+	LCD_Print("Set potmeter");	//Begin writing at Line 1, Position 1
 	_delay_ms(2000);
 	green_LED_on();
 	_delay_ms(1000);
@@ -246,28 +231,29 @@ int main()
 		while (timer_running == 0 && start_pressed == 0)
 		{
 			
-//			cli(); // Disable interrupts
+			cli(); // Disable interrupts
 			volatile uint16_t pot_value = read_ADC(POT_PIN);
 			seconds = ADC_to_seconds(pot_value);
 			
-			_delay_ms(500);
+			_delay_ms(200);
 			
 			char sec [8];
 			itoa(seconds, sec, 10);
 			LCD_Print(sec);
-			_delay_ms(500);
+			_delay_ms(200);
 			LCD_Clear();
-			
-// 			print_value(seconds);
+
 // 			
-// 			start_pressed = get_button_status(START_PIN);
+			start_pressed = get_button_status(START_PIN);
 // 			
-// 			if (start_pressed)
-// 			{
-// 				timer_running = 1;
-// 				green_LED_on();
-//				sei();	// enable interrupts, also starts the countdown
-//			}
+			if (start_pressed)
+			{
+// 				LCD_Clear();
+// 				LCD_Print(sec);
+				timer_running = 1;
+				green_LED_on();
+				sei();	// enable interrupts, also starts the countdown
+			}
 		
 		//itoa (runtime,showruntime,10);
 		//LCD_Print("4");		//Go to Line 2, Position 1
@@ -279,4 +265,40 @@ int main()
 		//_delay_ms(1000);
 }
 }
+}
+
+ISR (TIMER1_COMPA_vect) // action to be done every 1 sec
+{
+	seconds--; // Subtracts 1 from the timer value
+	if (seconds == 0)
+	{
+		red_LED_on();
+		//buzzer();
+		LCD_Print("Finished");
+		_delay_ms(2000);
+		LCD_Clear();
+		timer_running = 0;
+		start_pressed = 0;
+	}
+	else
+	{
+		LCD_Clear();
+		char sec [8];
+		itoa(seconds, sec, 10);
+//		LCD_Print("Time left");
+		LCD_Print(sec);
+		_delay_ms(100);
+		
+	}
+}
+
+
+ISR (PCINT0_vect)
+{
+	yellow_LED_on();
+	LCD_Clear();
+	LCD_Print("Pause!");
+	while(get_button_status(START_PIN) == 0) {} // wait for start button to be pressed
+	green_LED_on();
+
 }
