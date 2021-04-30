@@ -14,11 +14,11 @@
 #define THERM_PIN 0x00 // Thermistor connected to AREF, GND and A0
 #define POT_PIN 0x01 // Pot.meter connected to AREF, GND and A1
 
-#define BUZZER_PIN PB2 // Buzzer PB2
-#define START_PIN PB3 // Start button PB3
-#define PAUSE_PIN PB4 // Pause button PB4, interrupt: PCINT4
+#define BUZZER_PIN PB3 // Buzzer PB3
+#define START_PIN PB2 // Start button PB2
+#define PAUSE_PIN PC2 // Pause button PB4, interrupt: PCINT4
 #define START_PORT PORTB
-#define PAUSE_PORT PORTB
+#define PAUSE_PORT PORTC
 #define BUZZER_PORT PORTB
 
 
@@ -68,25 +68,36 @@ void timer_init(void)
 {
 	/*An interrupt happens every 1s*/
 	OCR1A = 0x3D08;
+	//OCR1B = 13; //buzzer test
 
 	TCCR1B |= (1 << WGM12);	// Mode 4, CTC on OCR1A
 	TIMSK1 |= (1 << OCIE1A); 	//Set interrupt on compare match
 	TCCR1B |= (1 << CS12) | (1 << CS10); // set prescaler to 1024 and start the timer
 }
 
+
 void buzzer_init (void)
 {
-	DDRB = (1<<DDB2);	// PB2 or OC1B output pin
-	TCCR0A = (1<<COM0A0)|(1<<WGM01);	// Toggle OC1B on compare match and CTC mode with OCR1A top (mode 4)
-	TCCR0B = (1<<CS02)|(1<<CS00);	// 1024x prescaler
-	OCR1B =	13;	// Top value to give 1200hz freq
+	TCCR2A = (1<<COM2A0)|(1<<WGM21);    // Toggle OC1B on compare match and CTC mode  with OCR1A top (mode 4)
+	TCCR2B = (1<<CS22)|(1<<CS21)|(1<<CS20);    // 1024x prescaler
+	OCR2A =    13;    // Top value to give 1200hz freq
 }
 
-void button_init(void){
-	PORTB |= (1<<PORTB3) | (1<<PORTB4); // Internal pull-up for buttons
-	PCMSK0 |= (1<<PCINT4); // PB4 set as input for interrupt
-	PCICR |= (1<<PCIE0);  // PCI0 vector,  interrupt 0 enabled 
-	EICRA |= (1<<ISC01); //falling edge INT0 generates an interrupt request
+// void button_init(void){ //orginal button
+// 	PORTB |= (1<<PORTB2) | (1<<PORTB4); // Internal pull-up for buttons
+// 	PCMSK0 |= (1<<PCINT4); // PB4 set as input for interrupt
+// 	PCICR |= (1<<PCIE0);  // PCI0 vector,  interrupt 0 enabled 
+// 	EICRA |= (1<<ISC01); //falling edge INT0 generates an interrupt request
+// }
+
+void button_init(void)
+{
+	PORTC |= (1<<PORTC2); // Internal pull-up for pause button
+	PORTB |= (1<<PORTB2); // Internal pull-up for start button
+	PCMSK1 |= (1<<PCINT10); // A2 set as input for interrupt
+	PCICR |= (1<<PCIE1);  // PCI1 vector,  interrupt 1 enabled
+	EICRA |= (1<<ISC11); //falling edge INT1 generates an interrupt request
+	sei();
 }
 
 void LCD_Action( unsigned char cmnd )
@@ -218,9 +229,9 @@ void buzzer()
 {
 	for (int i = 3; i > 0; --i)
 	{
-		BUZZER_PORT = (1<<BUZZER_PIN);
+		DDRB = (1<<DDB3);  // PB3 or OCR2A output pin
 		_delay_ms(1000);
-		BUZZER_PORT = (0<<BUZZER_PIN);
+		DDRB = (0<<DDB3);
 		_delay_ms(500);
 	}
 }
@@ -326,7 +337,7 @@ ISR (TIMER1_COMPA_vect) // action to be done every 1 sec
 	{
 		printString("All done!");
 		red_LED_on();
-		//buzzer();
+		buzzer();
 		timer_running = 0;
 		start_pressed = 0;
 	}
@@ -337,7 +348,7 @@ ISR (TIMER1_COMPA_vect) // action to be done every 1 sec
 	}
 }
 
-ISR (PCINT0_vect)
+ISR (PCINT1_vect)
 {
 	printString("PAUSE!");
 	yellow_LED_on();
