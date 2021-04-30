@@ -26,6 +26,7 @@
 #define G_LED_PORT PORTB
 
 #define LCD_Port PORTD			//Define LCD Port
+#define LCD_DPin  DDRD			//Define 4-Bit Pins (PD4-PD7 at PORT D)
 #define RSPIN PD0			//RS Pin
 #define ENPIN PD1 			//E Pin
 
@@ -274,6 +275,9 @@ int main(void)
 	buzzer_init();
 	LCD_init();
 	button_init();
+	
+	LCD_Print("Hello");
+	_delay_ms(2000);
 	
 	DDRD |= 0xFF; // LDC and LED outputs
 	DDRB |= (1<<DDB0); // green LED output
