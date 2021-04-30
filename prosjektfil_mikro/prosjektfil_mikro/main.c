@@ -58,11 +58,11 @@ void ADC_init(void)
 	// (Selecting prescaler: freq. needed: 50kHz - 200kHz. CLKfreq: 16MHz)
 }
 
-void USART_init(void)
-{
-	UBRR0 = BAUD_PRESCALE; // Sets UBBR according to system clock and desired baudrate
-	UCSR0B = (1 << RXEN0) | (1 << TXEN0); // Turn on the transmission and reception circuitry
-}
+// void USART_init(void)
+// {
+// 	UBRR0 = BAUD_PRESCALE; // Sets UBBR according to system clock and desired baudrate
+// 	UCSR0B = (1 << RXEN0) | (1 << TXEN0); // Turn on the transmission and reception circuitry
+// }
 
 void timer_init(void)
 {
@@ -83,12 +83,6 @@ void buzzer_init (void)
 	OCR2A =    13;    // Top value to give 1200hz freq
 }
 
-// void button_init(void){ //orginal button
-// 	PORTB |= (1<<PORTB2) | (1<<PORTB4); // Internal pull-up for buttons
-// 	PCMSK0 |= (1<<PCINT4); // PB4 set as input for interrupt
-// 	PCICR |= (1<<PCIE0);  // PCI0 vector,  interrupt 0 enabled 
-// 	EICRA |= (1<<ISC01); //falling edge INT0 generates an interrupt request
-// }
 
 void button_init(void)
 {
@@ -281,23 +275,26 @@ void red_LED_on(){
 int main(void)
 {	
 	ADC_init();
-	USART_init();
+	/*USART_init();*/
 	timer_init();
-	buzzer_init();
+	//buzzer_init();
 	LCD_init();
 	button_init();
-	
-	LCD_Print("Hello");
-	_delay_ms(2000);
-	
 	DDRD |= 0xFF; // LDC and LED outputs
 	DDRB |= (1<<DDB0); // green LED output
+	
+	LCD_Print("Set Potmeter");
+	_delay_ms(2000);
+	
+
 	green_LED_on();
 	_delay_ms(500);
 	yellow_LED_on();
 	_delay_ms(500);
 	red_LED_on();
 	_delay_ms(500);
+	
+	LCD_Clear();
 		
 	while (1)
 	{
@@ -306,8 +303,15 @@ int main(void)
 			cli(); // Disable interrupts
 			volatile uint16_t pot_value = read_ADC(POT_PIN);
 			seconds = ADC_to_seconds(pot_value);
-			printString("Set time at: ");
-			print_value(seconds);
+			//printString("Set time at: ");
+			//print_value(seconds);
+			
+			_delay_ms(200);
+			char sec [8]; // holder for seconds
+			itoa(seconds, sec, 10); 
+			LCD_Print(sec); // prints to LCD
+			_delay_ms(200);
+			LCD_Clear();
 			
 			start_pressed = get_button_status(START_PIN);
 			
@@ -335,23 +339,33 @@ ISR (TIMER1_COMPA_vect) // action to be done every 1 sec
 	 seconds--; // Subtracts 1 from the timer value
 	if (seconds == 0) 
 	{
-		printString("All done!");
+		//printString("All done!");
+		LCD_Print("Finished!");
+		_delay_ms(2000);
+		LCD_Clear();
 		red_LED_on();
-		buzzer();
+		//buzzer();
 		timer_running = 0;
 		start_pressed = 0;
 	}
 	else
 	{
-		printString("Time left: ");
-		print_value(seconds);
+// 		printString("Time left: ");
+// 		print_value(seconds);
+		LCD_Clear();
+		char sec [8];
+		itoa(seconds, sec, 10);
+		LCD_Print(sec);
+		_delay_ms(100);
 	}
 }
 
 ISR (PCINT1_vect)
 {
-	printString("PAUSE!");
+	//printString("PAUSE!");
 	yellow_LED_on();
+	LCD_Clear();
+	LCD_Print("Pause");
 	while(get_button_status(START_PIN) == 0) {} // wait for start button to be pressed
 	green_LED_on();
 }
