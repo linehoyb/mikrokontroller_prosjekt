@@ -15,9 +15,9 @@ More information at www.aeq-web.com
 #define THERM_PIN 0x00 // Thermistor connected to AREF, GND and A0
 #define POT_PIN 0x01 // Pot.meter connected to AREF, GND and A1
 
-#define BUZZER_PIN PB2 // Buzzer PB2
-#define START_PIN PB2 // Start button PB3
-#define PAUSE_PIN PB4 // Pause button PB4, interrupt: PCINT4
+#define BUZZER_PIN PB3 // Buzzer PB3
+#define START_PIN PB2 // Start button PB2
+#define PAUSE_PIN PC2 // Pause button PB4, interrupt: PCINT4
 #define START_PORT PORTB
 #define PAUSE_PORT PORTB
 #define BUZZER_PORT PORTB
@@ -47,6 +47,8 @@ uint8_t timer_running = 0;
 uint8_t start_pressed = 0;
 uint8_t seconds = 0;
 int runtime;			 //Timer for LCD
+int degrees;
+
 
 const uint8_t RED_LED = 2; // Red led on PD2
 const uint8_t YELLOW_LED = 3; // Yellow led on PD3
@@ -72,11 +74,21 @@ void timer_init(void)
 }
 
 
-void button_init(void){
-	PORTB |= (1<<PORTB2) | (1<<PORTB4); // Internal pull-up for buttons
-	PCMSK0 |= (1<<PCINT4); // PB4 set as input for interrupt
-	PCICR |= (1<<PCIE0);  // PCI0 vector,  interrupt 0 enabled
-	EICRA |= (1<<ISC01); //falling edge INT0 generates an interrupt request
+void button_init(void)
+{
+	PORTC |= (1<<PORTC2); // Internal pull-up for pause button
+	PORTB |= (1<<PORTB2); // Internal pull-up for start button
+	PCMSK1 |= (1<<PCINT10); // A2 set as input for interrupt
+	PCICR |= (1<<PCIE1);  // PCI1 vector,  interrupt 1 enabled
+	EICRA |= (1<<ISC11); //falling edge INT1 generates an interrupt request
+	sei();
+}
+
+void buzzer_init (void)
+{
+	TCCR2A = (1<<COM2A0)|(1<<WGM21);    // Toggle OC1B on compare match and CTC mode  with OCR1A top (mode 4)
+	TCCR2B = (1<<CS22)|(1<<CS21)|(1<<CS20);    // 1024x prescaler
+	OCR2A =    13;    // Top value to give 1200hz freq
 }
 
 
@@ -163,6 +175,34 @@ uint8_t ADC_to_seconds(uint16_t adc_number)
 	return (uint8_t)decimal_result;
 }
 
+
+float ADC_to_celcius(uint16_t adc_number)
+{
+	/*Returns the temperature in celcius*/
+	const float T_25 = 298.15; // ref.temp in kelvin (25C)
+	const float R_25 = 10000; // ref. resistance thermistor
+	const float BETA = 3950; // material constant
+	const float ADC_MAX = 1023;
+	const float VCC = 5.0;
+	
+	float V_0 = ((float)adc_number*VCC) / ADC_MAX; // voltage over thermistor
+	float R_0 = V_0*R_25 / (VCC-V_0); // thermistor resistance
+	float celcius = (1 / ((1/T_25) + (1/BETA)*log(R_0 / R_25))) - 273.15;
+	return celcius;
+}
+
+void buzzer()
+{
+	for (int i = 3; i > 0; --i)
+	{
+		DDRB = (1<<DDB3);  // PB3 or OCR2A output pin
+		_delay_ms(1000);
+		DDRB = (0<<DDB3);
+		_delay_ms(500);
+	}
+}
+
+
 uint8_t debounce(uint8_t button_pin) {
 	if (bit_is_clear(PINB, button_pin)) {      /* button is pressed now */
 		_delay_us(DEBOUNCE_TIME);
@@ -215,9 +255,22 @@ int main()
 	timer_init();
 	button_init();
 	LCD_Init(); //Activate LCD
+	buzzer_init();
 	
 	LCD_Print("Set potmeter");	//Begin writing at Line 1, Position 1
 	_delay_ms(2000);
+	LCD_Action(0xC0);	
+	LCD_Print("Temperature:");
+	
+volatile uint16_t thermistor_value = read_ADC(THERM_PIN);
+float temperature = ADC_to_celcius(thermistor_value);
+
+//Printer temperaturen. kopieres over i alle tilfellene
+	char temp [8];
+	itoa(temperature, temp, 10);
+	LCD_Printpos(2 , 14, temp);
+	
+	
 	green_LED_on();
 	_delay_ms(1000);
 	yellow_LED_on();
@@ -242,7 +295,10 @@ int main()
 			LCD_Print(sec);
 			_delay_ms(200);
 			LCD_Clear();
-
+			
+// 			char temp [8];
+// 			itoa(temperature, temp, 10);
+// 			LCD_Printpos(2 , 14, temp);
 // 			
 			start_pressed = get_button_status(START_PIN);
 // 			
@@ -273,12 +329,13 @@ ISR (TIMER1_COMPA_vect) // action to be done every 1 sec
 	if (seconds == 0)
 	{
 		red_LED_on();
-		//buzzer();
+		buzzer();
 		LCD_Print("Finished");
 		_delay_ms(2000);
 		LCD_Clear();
 		timer_running = 0;
 		start_pressed = 0;
+		
 	}
 	else
 	{
@@ -289,11 +346,17 @@ ISR (TIMER1_COMPA_vect) // action to be done every 1 sec
 		LCD_Print(sec);
 		_delay_ms(100);
 		
+		volatile uint16_t thermistor_value = read_ADC(THERM_PIN);
+		float temperature = ADC_to_celcius(thermistor_value);
+// 
+// 		char temp [8];
+// 		itoa(temperature, temp, 10);
+// 		LCD_Printpos(2 , 14, temp);
 	}
 }
 
 
-ISR (PCINT0_vect)
+ISR (PCINT1_vect)
 {
 	yellow_LED_on();
 	LCD_Clear();
@@ -301,4 +364,10 @@ ISR (PCINT0_vect)
 	while(get_button_status(START_PIN) == 0) {} // wait for start button to be pressed
 	green_LED_on();
 
+	volatile uint16_t thermistor_value = read_ADC(THERM_PIN);
+	float temperature = ADC_to_celcius(thermistor_value);
+
+// 	char temp [8];
+// 	itoa(temperature, temp, 10);
+// 	LCD_Printpos(2 , 14, temp);
 }
