@@ -14,14 +14,14 @@
 #define THERM_PIN 0x00 // Thermistor connected to AREF, GND and A0
 #define POT_PIN 0x01 // Pot.meter connected to AREF, GND and A1
 
+#define BUZZER_PIN PB2 // Buzzer PB2
 #define START_PIN PB3 // Start button PB3
 #define PAUSE_PIN PB4 // Pause button PB4, interrupt: PCINT4
 #define START_PORT PORTB
 #define PAUSE_PORT PORTB
+#define BUZZER_PORT PORTB
 
-#define RED_LED PD2 // Red led on PD2
-#define YELLOW_LED PD3 // Yellow led on PD3
-#define GREEN_LED PB0 // Green led on PB0
+
 #define R_Y_LED_PORT PORTD
 #define G_LED_PORT PORTB
 
@@ -45,6 +45,10 @@ uint8_t timer_running = 0;
 uint8_t start_pressed = 0;
 uint8_t seconds = 0;
 int runtime;			 //Timer for LCD
+
+const uint8_t RED_LED = 2; // Red led on PD2
+const uint8_t YELLOW_LED = 3; // Yellow led on PD3
+const uint8_t GREEN_LED = 0; // Green led on PB0
 
 void ADC_init(void)
 {
@@ -175,9 +179,13 @@ void print_value(uint16_t number)
 	* Prints 3-digit numbers to the terminal
 	* Because the terminal is interpeting these values as an ASCI code we add '0', or 48, plus a digit
 	*/
-	transmitByte('0' + ((number/ 100) % 10)); // Hundreds
-	transmitByte('0' + ((number/ 10) % 10)); // Tens
-	transmitByte('0' + (number % 10)); // Ones
+	uint8_t hundreds = (number/ 100) % 10;
+	uint8_t tens = (number/ 10) % 10;
+	uint8_t ones = number % 10;
+	
+	if(hundreds > 0) transmitByte('0' + hundreds);
+	if(hundreds > 0 || tens > 0) transmitByte('0' + tens);
+	transmitByte('0' + ones); // Ones
 	printString("\r");
 	_delay_ms(10);
 }
@@ -209,9 +217,9 @@ void buzzer()
 {
 	for (int i = 3; i > 0; --i)
 	{
-		DDRB = (1<<DDB2);
+		BUZZER_PORT = (1<<BUZZER_PIN);
 		_delay_ms(1000);
-		DDRB = (0<<DDB2);
+		BUZZER_PORT = (0<<BUZZER_PIN);
 		_delay_ms(500);
 	}
 }
@@ -239,6 +247,24 @@ uint8_t get_button_status(uint8_t button)
 		return 0;
 	}
 }  
+void yellow_LED_on(){
+	R_Y_LED_PORT |= (1<<YELLOW_LED);
+	R_Y_LED_PORT &= ~(1<<RED_LED);
+	G_LED_PORT &= ~(1<<GREEN_LED);
+}
+
+void green_LED_on(){
+	G_LED_PORT |= (1<<GREEN_LED);
+	R_Y_LED_PORT &= ~(1<<RED_LED);
+	R_Y_LED_PORT &= ~(1<<YELLOW_LED);
+}
+
+void red_LED_on(){
+	R_Y_LED_PORT |= (1<<RED_LED);
+	R_Y_LED_PORT &= ~(1<<YELLOW_LED);
+	G_LED_PORT &= ~(1<<GREEN_LED);
+}
+
 
 int main(void)
 {	
@@ -249,12 +275,15 @@ int main(void)
 	LCD_init();
 	button_init();
 	
-	
 	DDRD |= 0xFF; // LDC and LED outputs
 	DDRB |= (1<<DDB0); // green LED output
-	
-	R_Y_LED_PORT |= (1<<RED_LED); // Turn on red LED
-	
+	green_LED_on();
+	_delay_ms(500);
+	yellow_LED_on();
+	_delay_ms(500);
+	red_LED_on();
+	_delay_ms(500);
+		
 	while (1)
 	{
 		while (timer_running == 0 && start_pressed == 0)
@@ -270,8 +299,7 @@ int main(void)
 			if (start_pressed)
 			{
 				timer_running = 1;
-				G_LED_PORT |= (1<<GREEN_LED); // turn on green LED
-				R_Y_LED_PORT &= ~(1<<RED_LED); // turn off red LED
+				green_LED_on();
 				sei();	// enable interrupts, also starts the countdown
 			}
 		}
@@ -293,8 +321,8 @@ ISR (TIMER1_COMPA_vect) // action to be done every 1 sec
 	if (seconds == 0) 
 	{
 		printString("All done!");
-		G_LED_PORT &= ~(1<<GREEN_LED); // turn off green LED
-		R_Y_LED_PORT |= (1<<RED_LED); // turn on red LED
+		red_LED_on();
+		//buzzer();
 		timer_running = 0;
 		start_pressed = 0;
 	}
@@ -303,15 +331,12 @@ ISR (TIMER1_COMPA_vect) // action to be done every 1 sec
 		printString("Time left: ");
 		print_value(seconds);
 	}
-	
 }
 
 ISR (PCINT0_vect)
 {
 	printString("PAUSE!");
-	R_Y_LED_PORT |= (1<<YELLOW_LED);
-	G_LED_PORT &= ~(1<<GREEN_LED);
-	while(get_button_status(START_PIN) == 0) // wait for start button to be pressed
-	G_LED_PORT |= (1<<GREEN_LED);
-	R_Y_LED_PORT &= ~(1<<YELLOW_LED);
+	yellow_LED_on();
+	while(get_button_status(START_PIN) == 0) {} // wait for start button to be pressed
+	green_LED_on();
 }
