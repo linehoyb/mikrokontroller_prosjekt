@@ -22,7 +22,9 @@ More information at www.aeq-web.com
 #define PAUSE_PORT PORTB
 #define BUZZER_PORT PORTB
 
-
+#define RED_LED PD2 // Red led on PD2
+#define YELLOW_LED PD3 // Yellow led on PD3
+#define GREEN_LED PB0 // Green led on PB0
 #define R_Y_LED_PORT PORTD
 #define G_LED_PORT PORTB
 
@@ -45,15 +47,9 @@ uint8_t time_test = 180;			// Test-variable to see if timer working
 uint8_t buttonWasPressed = 0;                                 /* state */
 uint8_t timer_running = 0;
 uint8_t start_pressed = 0;
-uint8_t seconds = 0;
-int runtime;			 //Timer for LCD
-int degrees;
-
-
-const uint8_t RED_LED = 2; // Red led on PD2
-const uint8_t YELLOW_LED = 3; // Yellow led on PD3
-const uint8_t GREEN_LED = 0; // Green led on PB0
-
+uint8_t seconds;
+uint8_t temperature;
+volatile uint16_t thermistor_value;
 
 void ADC_init(void)
 {
@@ -61,7 +57,6 @@ void ADC_init(void)
 	ADCSRA |= (1<<ADEN) | (1<<ADPS0) | (1<<ADPS1) | (1<<ADPS2); //Enables ADC feature, prescaler = 128 --> ADCfreq = 125kHz
 	// (Selecting prescaler: freq. needed: 50kHz - 200kHz. CLKfreq: 16MHz)
 }
-
 
 void timer_init(void)
 {
@@ -72,7 +67,6 @@ void timer_init(void)
 	TIMSK1 |= (1 << OCIE1A); 	//Set interrupt on compare match
 	TCCR1B |= (1 << CS12) | (1 << CS10); // set prescaler to 1024 and start the timer
 }
-
 
 void button_init(void)
 {
@@ -90,7 +84,6 @@ void buzzer_init (void)
 	TCCR2B = (1<<CS22)|(1<<CS21)|(1<<CS20);    // 1024x prescaler
 	OCR2A =    13;    // Top value to give 1200hz freq
 }
-
 
 void LCD_Init (void)
 {
@@ -126,7 +119,6 @@ void LCD_Clear()
 	LCD_Action (0x80);		//Move to Position Line 1, Position 1
 }
 
-
 void LCD_Print (char *str)
 {
 	int i;
@@ -145,9 +137,9 @@ void LCD_Print (char *str)
 		_delay_ms(2);
 	}
 }
-//Write on a specific location
+
 void LCD_Printpos (char row, char pos, char *str)
-{
+{ //Write on a specific location
 	if (row == 0 && pos<16)
 	LCD_Action((pos & 0x0F)|0x80);
 	else if (row == 1 && pos<16)
@@ -163,9 +155,6 @@ uint16_t read_ADC(uint8_t ADCchannel)
 	while( ADCSRA & (1<<ADSC) ); // wait until ADC conversion is complete
 	return ADC;
 }
-// 
-// }
-// 
 
 uint8_t ADC_to_seconds(uint16_t adc_number)
 {
@@ -175,8 +164,7 @@ uint8_t ADC_to_seconds(uint16_t adc_number)
 	return (uint8_t)decimal_result;
 }
 
-
-float ADC_to_celcius(uint16_t adc_number)
+uint8_t ADC_to_celcius(uint16_t adc_number)
 {
 	/*Returns the temperature in celcius*/
 	const float T_25 = 298.15; // ref.temp in kelvin (25C)
@@ -188,7 +176,7 @@ float ADC_to_celcius(uint16_t adc_number)
 	float V_0 = ((float)adc_number*VCC) / ADC_MAX; // voltage over thermistor
 	float R_0 = V_0*R_25 / (VCC-V_0); // thermistor resistance
 	float celcius = (1 / ((1/T_25) + (1/BETA)*log(R_0 / R_25))) - 273.15;
-	return celcius;
+	return (uint8_t)celcius;
 }
 
 void buzzer()
@@ -201,7 +189,6 @@ void buzzer()
 		_delay_ms(500);
 	}
 }
-
 
 uint8_t debounce(uint8_t button_pin) {
 	if (bit_is_clear(PINB, button_pin)) {      /* button is pressed now */
@@ -226,9 +213,6 @@ uint8_t get_button_status(uint8_t button)
 	}
 }
 
-
-
-
 void yellow_LED_on(){
 	R_Y_LED_PORT |= (1<<YELLOW_LED);
 	R_Y_LED_PORT &= ~(1<<RED_LED);
@@ -248,28 +232,19 @@ void red_LED_on(){
 }
 
 
-
 int main()
-{	
+{	//initializing first
 	ADC_init();
 	timer_init();
 	button_init();
 	LCD_Init(); //Activate LCD
 	buzzer_init();
+	DDRB |= (1<<GREEN_LED);
+	
+	/*Start sequence. Shows "set potmeter" on LCD and has a countdown with the three leds*/
 	
 	LCD_Print("Set potmeter");	//Begin writing at Line 1, Position 1
-	_delay_ms(2000);
-	LCD_Action(0xC0);	
-	LCD_Print("Temperature:");
-	
-volatile uint16_t thermistor_value = read_ADC(THERM_PIN);
-float temperature = ADC_to_celcius(thermistor_value);
-
-//Printer temperaturen. kopieres over i alle tilfellene
-	char temp [8];
-	itoa(temperature, temp, 10);
-	LCD_Printpos(2 , 14, temp);
-	
+	_delay_ms(1500);
 	
 	green_LED_on();
 	_delay_ms(1000);
@@ -279,95 +254,91 @@ float temperature = ADC_to_celcius(thermistor_value);
 	_delay_ms(1000);
 	LCD_Clear();
 
-	while(1) {
-		
+	while(1) 
+	{
 		while (timer_running == 0 && start_pressed == 0)
 		{
-			
 			cli(); // Disable interrupts
+			
+			/* starts ADC_convertion of potmeter and tempsensor */
 			volatile uint16_t pot_value = read_ADC(POT_PIN);
 			seconds = ADC_to_seconds(pot_value);
 			
+			thermistor_value = read_ADC(THERM_PIN);
+			temperature = ADC_to_celcius(thermistor_value);
+			
 			_delay_ms(200);
 			
-			char sec [8];
-			itoa(seconds, sec, 10);
-			LCD_Print(sec);
+			/* Print secons ans temperature*/
+			char sec [8]; //makes the seconds into char
+			itoa(seconds, sec, 10); //makes it possible to print on the LCD
+			LCD_Action(0x80); //sets the cursor on the LCD to row 1, place 1
+			LCD_Print(sec); //print seconds
 			_delay_ms(200);
-			LCD_Clear();
+			LCD_Clear(); //clears LCD
 			
-// 			char temp [8];
-// 			itoa(temperature, temp, 10);
-// 			LCD_Printpos(2 , 14, temp);
-// 			
+			char temp [8]; //makes temperature into char
+			itoa(temperature, temp, 10); //makes it possible to print on LCD
+			LCD_Action(0xC0);	//sets cursor on LCD to row 2, position 1 
+			LCD_Print("Temperature:"); //prints the "temperature" on the position set by action 
+			LCD_Printpos(2 , 14, temp); //prints the temperature on position 2, 14. 
+			
 			start_pressed = get_button_status(START_PIN);
 // 			
 			if (start_pressed)
 			{
-// 				LCD_Clear();
-// 				LCD_Print(sec);
 				timer_running = 1;
 				green_LED_on();
 				sei();	// enable interrupts, also starts the countdown
 			}
+		} //end while
+		/* Reads the termistor value and converts it to temperature*/
+		thermistor_value = read_ADC(THERM_PIN);
+		temperature = ADC_to_celcius(thermistor_value);
+		_delay_ms(500); //add a delay so the LCD has time to process the info 
 		
-		//itoa (runtime,showruntime,10);
-		//LCD_Print("4");		//Go to Line 2, Position 1
-		//LCD_Print("RUNTIME (s): ");
-		//LCD_Print("5");
-		//LCD_Print(showruntime);
-		//_delay_ms(1000);
-		//runtime++;
-		//_delay_ms(1000);
-}
-}
-}
+	} //end while(1)
+} //end int main
 
 ISR (TIMER1_COMPA_vect) // action to be done every 1 sec
 {
 	seconds--; // Subtracts 1 from the timer value
-	if (seconds == 0)
-	{
+	if (seconds == 0) //finished sequence
+	{	LCD_Clear();
 		red_LED_on();
-		buzzer();
 		LCD_Print("Finished");
-		_delay_ms(2000);
+		buzzer();
+		_delay_ms(3000);
 		LCD_Clear();
 		timer_running = 0;
 		start_pressed = 0;
 		
 	}
 	else
-	{
+	{   /* When the timer counts down ,the LCD prints the countdown of seconds and the temperature */
 		LCD_Clear();
 		char sec [8];
 		itoa(seconds, sec, 10);
 //		LCD_Print("Time left");
-		LCD_Print(sec);
+		LCD_Action(0x80); //sets the cursor to 1, 1
+		LCD_Print(sec); //prints seconds
 		_delay_ms(100);
 		
-		volatile uint16_t thermistor_value = read_ADC(THERM_PIN);
-		float temperature = ADC_to_celcius(thermistor_value);
-// 
-// 		char temp [8];
-// 		itoa(temperature, temp, 10);
-// 		LCD_Printpos(2 , 14, temp);
+		char temp [8];
+		itoa(temperature, temp, 10);
+		LCD_Action(0xC0);	//sets the cursor on the LCD to 2, 1 
+		LCD_Print("Temperatur:");
+		LCD_Printpos(2 , 14, temp); //printstemperature on position 2, 14
+		
 	}
 }
 
 
 ISR (PCINT1_vect)
-{
+{	/* Pause sequence with interrupt. prints "pause"*/
 	yellow_LED_on();
 	LCD_Clear();
 	LCD_Print("Pause!");
 	while(get_button_status(START_PIN) == 0) {} // wait for start button to be pressed
 	green_LED_on();
-
-	volatile uint16_t thermistor_value = read_ADC(THERM_PIN);
-	float temperature = ADC_to_celcius(thermistor_value);
-
-// 	char temp [8];
-// 	itoa(temperature, temp, 10);
-// 	LCD_Printpos(2 , 14, temp);
 }
