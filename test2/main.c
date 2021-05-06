@@ -1,6 +1,11 @@
 /*
 4-Bit 16x2 LCD Example
 More information at www.aeq-web.com
+
+Forfatter:
+Ida Frøhoel
+Line Høybakk
+Sander Bjarke Ringheim
 */
 
 
@@ -80,7 +85,7 @@ void button_init(void)
 
 void buzzer_init (void)
 {
-	TCCR2A = (1<<COM2A0)|(1<<WGM21);    // Toggle OC1B on compare match and CTC mode  with OCR1A top (mode 4)
+	TCCR2A = (1<<COM2A0)|(1<<WGM21);    // Toggle OC2A on compare match and CTC mode  with OCR2A top (mode 4)
 	TCCR2B = (1<<CS22)|(1<<CS21)|(1<<CS20);    // 1024x prescaler
 	OCR2A =    13;    // Top value to give 1200hz freq
 }
