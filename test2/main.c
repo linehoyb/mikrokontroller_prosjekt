@@ -80,7 +80,6 @@ void button_init(void)
 	PCMSK1 |= (1<<PCINT10); // A2 set as input for interrupt
 	PCICR |= (1<<PCIE1);  // PCI1 vector,  interrupt 1 enabled
 	EICRA |= (1<<ISC11); //falling edge INT1 generates an interrupt request
-	sei();
 }
 
 void buzzer_init (void)
@@ -300,7 +299,7 @@ int main()
 		/* Reads the termistor value and converts it to temperature*/
 		thermistor_value = read_ADC(THERM_PIN);
 		temperature = ADC_to_celcius(thermistor_value);
-		_delay_ms(500); //add a delay so the LCD has time to process the info 
+		_delay_ms(500);
 		
 	} //end while(1)
 } //end int main
